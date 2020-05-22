@@ -408,9 +408,9 @@ public static class ImportGltf {
       }
     }
     foreach (Transform child in rootTransform) {
-      // child = MatrixScale(nodeScaleFactor) * child;
-      child.localScale *= state.nodeScaleFactor;
-      child.localPosition *= state.nodeScaleFactor;
+      // XXX: do this here instead? 
+      // child.localPosition += state.translation;
+      child.localScale = child.localScale * state.nodeScaleFactor;
     }
     result.materials = matConverter.GetGeneratedMaterials();
   }
@@ -442,7 +442,7 @@ public static class ImportGltf {
       // Default to identity. (obj.localTransform is already identity)
     }
 
-    // TODO(pld): Maybe better to have caller apply it and simplify the parameter out of the API
+    // Maybe better to have caller apply it?
     obj.transform.localPosition += translationToApply;
 
     if (node.Mesh != null) {
@@ -558,7 +558,7 @@ public static class ImportGltf {
   // assumptions (commented inline). It will work for Tilt Brush topology,
   // but is definitely not suitable for arbitrary meshes.
   static IEnumerable<MeshSubset> GenerateMeshSubsets(
-      ushort[] triangles, int numVerts, int maxSubsetVerts = kUnityMeshMaxVerts) {
+      int[] triangles, int numVerts, int maxSubsetVerts = kUnityMeshMaxVerts) {
 
     // Early out if there's no split -- saves time figuring out which verts are used.
     if (numVerts <= maxSubsetVerts) {
@@ -633,11 +633,10 @@ public static class ImportGltf {
     Matrix4x4 destFromSource = Matrix4x4.Scale(Vector3.one * scaleFactor);
     Matrix4x4 sourceFromDest = Matrix4x4.Scale(Vector3.one / scaleFactor);
     return destFromSource * inTargetBasis * sourceFromDest;
-#else
-    inTargetBasis[12] *= scaleFactor;
+#endif
     inTargetBasis[13] *= scaleFactor;
     inTargetBasis[14] *= scaleFactor;
-#endif
+    inTargetBasis[15] *= scaleFactor;
     return inTargetBasis;
   }
 
@@ -725,10 +724,10 @@ public static class ImportGltf {
       }
     }
 
-    ushort[] triangles; {
+    int[] triangles; {
       GltfAccessorBase accessor = prim.IndicesPtr;
       IntRange range = new IntRange { max = accessor.count };
-      triangles = (ushort[])GetDataAsArray(accessor, range, null);
+      triangles = (int[])GetDataAsArray(accessor, range, null);
     }
 
     int numVerts = prim.GetAttributePtr("POSITION").count;
@@ -1029,9 +1028,23 @@ public static class ImportGltf {
       fixed (void* destPtr = destination) {
         ReadAccessorData(accessor, eltRange, sizeof(ushort), (IntPtr)destPtr);
       }
-      result = destination;
+        var finalDestination = new int[destination.Length];
+        for (int ii = 0; ii < destination.Length; ++ii) finalDestination[ii] = Convert.ToInt32(destination[ii]);
+        result = finalDestination;
+      //result = destination;
       return true;
-    } else {
+    }
+    else if (accessor.type == "SCALAR" && (int)accessor.componentType == 5125)
+    {
+        var destination = new int[eltRange.Size];
+        fixed (void* destPtr = destination)
+        {
+            ReadAccessorData(accessor, eltRange, sizeof(int), (IntPtr)destPtr);
+        }
+        result = destination;
+        return true;
+    }
+    else {
       Debug.LogWarningFormat(
           "Unknown accessor type {0} componentType {1}",
           accessor.type, accessor.componentType);
